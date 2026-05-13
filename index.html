@@ -336,16 +336,14 @@ button,input,select,textarea{font:inherit}
     <input type="text" id="search-input" placeholder="Search SOPs, guides, procedures..." oninput="handleSearch(this.value)" onkeydown="if(event.key==='Escape')clearSearch()">
   </div>
   <div class="topbar-right">
-    <span class="save-indicator" id="save-indicator" title="All changes are auto-saved to your browser">&#10003; Saved locally</span>
-    <button class="btn btn-ghost btn-sm" onclick="exportData()" title="Download a backup file of all your articles and categories"><span>&#8595; Backup</span></button>
-    <button class="btn btn-ghost btn-sm" onclick="document.getElementById('import-file').click()" title="Restore from a backup file"><span>&#8593; Restore</span></button>
+    <span class="save-indicator" id="save-indicator" title="Changes auto-save to this browser">&#10003; Saved locally</span>
+    <button id="repo-save-btn" class="btn btn-ghost btn-sm" onclick="downloadDataJson(false)" title="Download data.json — commit this file to your GitHub repo to save changes across all devices" style="border-color:var(--gold);color:var(--gold);font-weight:700"><span>&#8595; Save to repo</span></button>
+    <button class="btn btn-ghost btn-sm" onclick="document.getElementById('import-file').click()" title="Load a data.json file from your repo or a backup"><span>&#8593; Load</span></button>
     <input type="file" id="import-file" class="import-file-input" accept=".json" onchange="importData(event)">
     <div class="topbar-divider"></div>
-    <button class="btn btn-ghost btn-sm" onclick="openCategoryModal()"><span>New category</span></button>
-    <button class="btn btn-ghost btn-sm" onclick="openArticleModal()"><span>New article</span></button>
-    <button class="btn btn-primary btn-sm" onclick="openArticleModal()"><span>New SOP</span></button>
+    <button class="btn btn-ghost btn-sm" onclick="openCategoryModal()"><span>+ Category</span></button>
+    <button class="btn btn-gold btn-sm" onclick="openArticleModal()"><span>+ New SOP</span></button>
     <button class="btn btn-ghost btn-sm" onclick="lockSite()"><span>Lock</span></button>
-    <button class="btn btn-ghost btn-sm" style="font-size:11px;opacity:.6" onclick="checkStorageHealth()" title="Check if your data is saved correctly">Status</button>
   </div>
 </header>
 
@@ -376,7 +374,15 @@ button,input,select,textarea{font:inherit}
         </div>
       </div>
       <div class="red-bar"></div>
-      <div class="home-body">
+      <div id="workflow-banner" style="display:none;background:linear-gradient(135deg,rgba(212,160,23,.12),rgba(192,22,26,.08));border-bottom:1px solid rgba(212,160,23,.25);padding:.85rem 3rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
+  <span style="font-size:15px">💾</span>
+  <div style="flex:1;min-width:200px">
+    <strong style="font-size:13px;color:var(--white)">How saving works on GitHub Pages</strong>
+    <p style="font-size:12px;color:var(--gray-2);margin-top:2px">Your edits auto-save to <em>this browser only</em>. To save across all devices and browsers, click <strong style="color:var(--gold)">↓ Save to repo</strong> after making changes — then commit the downloaded <code style="font-size:11px;background:var(--dark4);padding:1px 4px;border-radius:3px">data.json</code> to your GitHub repo root.</p>
+  </div>
+  <button onclick="document.getElementById('workflow-banner').style.display='none';localStorage.setItem('umt_banner_dismissed','1')" style="background:transparent;border:1px solid var(--gray-4);color:var(--gray-3);border-radius:4px;padding:4px 10px;cursor:pointer;font-size:12px;white-space:nowrap">Got it</button>
+</div>
+<div class="home-body">
         <div class="section-row">
           <div class="section-label">Browse categories</div>
           <button class="btn btn-ghost btn-sm" onclick="openCategoryModal()">New category</button>
@@ -631,8 +637,14 @@ const DEFAULT_CATEGORIES=[
   {id:'emergency',name:'Emergency Procedures',icon:'alert',color:'#e03030',desc:'Emergency response, evacuation, and first aid protocols.'}
 ];
 
-let categories=JSON.parse(localStorage.getItem('umt_kb_categories')||'null')||DEFAULT_CATEGORIES;
-let articles=JSON.parse(localStorage.getItem('umt_kb')||'null')||[
+// ── Storage: localStorage primary, data.json fallback ──────────────────────────
+// Data is loaded from localStorage. To persist across devices/browsers, use
+// the "Save to repo" button which downloads an updated data.json to commit to GitHub.
+let _lsCategories=null,_lsArticles=null;
+try{_lsCategories=JSON.parse(localStorage.getItem('umt_kb_categories')||'null');}catch(e){}
+try{_lsArticles=JSON.parse(localStorage.getItem('umt_kb')||'null');}catch(e){}
+let categories=_lsCategories||DEFAULT_CATEGORIES;
+let articles=_lsArticles||[
   {id:1,title:'Morning Opening Checklist',category:'opening-closing',status:'Published',author:'Operations Team',date:'2025-05-01',summary:'Step-by-step procedure for opening the gym each morning safely and efficiently.',content:`## Purpose
 Ensure the facility opens consistently, safely, and on time every morning.
 
@@ -798,11 +810,18 @@ function flashSaved(){
   if(!el)return;
   el.textContent='Saving…';el.className='save-indicator saving';
   clearTimeout(el._t);
-  el._t=setTimeout(()=>{el.textContent='✓ Saved — '+new Date().toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit'});el.className='save-indicator saved';},350);
+  el._t=setTimeout(()=>{
+    el.textContent='✓ Saved locally';
+    el.className='save-indicator saved';
+    // Show the repo-save button as needed
+    const rb=document.getElementById('repo-save-btn');
+    if(rb){rb.style.opacity='1';rb.style.borderColor='var(--gold)';rb.style.color='var(--gold)';rb.title='Unsaved changes — click to download data.json and commit to GitHub';}
+  },350);
 }
 function saveArticles(){
   try{
     localStorage.setItem('umt_kb',JSON.stringify(articles));
+    localStorage.setItem('umt_kb_dirty','1');
     flashSaved();
   }catch(e){
     console.error('Save failed:',e);
@@ -812,6 +831,7 @@ function saveArticles(){
 function saveCategories(){
   try{
     localStorage.setItem('umt_kb_categories',JSON.stringify(categories));
+    localStorage.setItem('umt_kb_dirty','1');
     flashSaved();
   }catch(e){
     console.error('Save failed:',e);
@@ -886,6 +906,33 @@ function ensureSeededRetentionPlaybook(){
 }
 
 function init(){
+  const hasLocalData=localStorage.getItem('umt_kb')!==null;
+  if(!hasLocalData){
+    // No localStorage data — try loading data.json from the repo
+    fetch('./data.json?_='+Date.now())
+      .then(r=>{if(!r.ok)throw new Error('no data.json');return r.json();})
+      .then(data=>{
+        if(data.articles&&data.categories){
+          articles=data.articles;
+          categories=data.categories;
+          // Seed into localStorage so it persists from here
+          localStorage.setItem('umt_kb',JSON.stringify(articles));
+          localStorage.setItem('umt_kb_categories',JSON.stringify(categories));
+          if(data.seeded)localStorage.setItem('umt_kb_seeded',data.seeded);
+          localStorage.removeItem('umt_kb_dirty');
+        }
+        _finishInit(true);
+      })
+      .catch(()=>{
+        // No data.json either — use defaults
+        _finishInit(false);
+      });
+  }else{
+    _finishInit(true);
+  }
+}
+
+function _finishInit(hasData){
   normalizeCategoryIcons();
   ensureSeededRetentionPlaybook();
   renderIconPicker();
@@ -894,18 +941,25 @@ function init(){
   buildRecentList();
   updateStats();
   populateCatSelect();
-  // Show storage status in indicator on load
+  // Show workflow banner once
+  if(!localStorage.getItem('umt_banner_dismissed')){
+    const banner=document.getElementById('workflow-banner');
+    if(banner)banner.style.display='flex';
+  }
   const el=document.getElementById('save-indicator');
   if(el){
-    const hasData=localStorage.getItem('umt_kb')!==null;
     if(hasData){
-      el.textContent='✓ Data loaded from storage';
+      el.textContent='✓ Data loaded';
       el.className='save-indicator saved';
     }else{
-      el.textContent='○ Default data loaded';
+      el.textContent='New — no saved data yet';
       el.className='save-indicator';
     }
   }
+  // Hide repo-save btn if no dirty changes
+  const rb=document.getElementById('repo-save-btn');
+  const isDirty=localStorage.getItem('umt_kb_dirty')==='1';
+  if(rb&&!isDirty){rb.style.opacity='.45';rb.style.borderColor='';rb.style.color='';}
 }
 
 function updateStats(){
@@ -1511,6 +1565,10 @@ document.addEventListener('click',e=>{
 
 // ── Backup & Restore ──────────────────────────────────────────────────────────
 function exportData(){
+  downloadDataJson(true);
+}
+
+function downloadDataJson(isBackup){
   const payload={
     version:1,
     exported:new Date().toISOString(),
@@ -1522,12 +1580,18 @@ function exportData(){
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');
   a.href=url;
-  const d=new Date();
-  const stamp=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
-  a.download='umt-knowledge-base-backup-'+stamp+'.json';
+  a.download='data.json';
   a.click();
   URL.revokeObjectURL(url);
-  toast('Backup downloaded — save this file somewhere safe');
+  // Mark as clean after download
+  localStorage.removeItem('umt_kb_dirty');
+  const rb=document.getElementById('repo-save-btn');
+  if(rb){rb.style.opacity='.45';rb.style.borderColor='';rb.style.color='';}
+  if(isBackup){
+    toast('data.json downloaded — commit this file to your GitHub repo to save across devices');
+  }else{
+    toast('data.json downloaded — commit to GitHub repo root to persist changes');
+  }
 }
 
 function importData(e){
