@@ -285,6 +285,11 @@ button,input,select,textarea{font:inherit}
   .hero-logo{height:120px;max-width:45vw}
   .field-row{grid-template-columns:1fr}
 }
+
+.save-indicator{font-size:11px;color:var(--gray-3);white-space:nowrap;transition:color .3s}
+.save-indicator.saved{color:#3ec98a}
+.save-indicator.saving{color:var(--gold)}
+.import-file-input{display:none}
 </style>
 </head>
 <body class="auth-locked">
@@ -319,6 +324,11 @@ button,input,select,textarea{font:inherit}
     <input type="text" id="search-input" placeholder="Search SOPs, guides, procedures..." oninput="handleSearch(this.value)" onkeydown="if(event.key==='Escape')clearSearch()">
   </div>
   <div class="topbar-right">
+    <span class="save-indicator" id="save-indicator" title="All changes are auto-saved to your browser">&#10003; Saved locally</span>
+    <button class="btn btn-ghost btn-sm" onclick="exportData()" title="Download a backup file of all your articles and categories"><span>&#8595; Backup</span></button>
+    <button class="btn btn-ghost btn-sm" onclick="document.getElementById('import-file').click()" title="Restore from a backup file"><span>&#8593; Restore</span></button>
+    <input type="file" id="import-file" class="import-file-input" accept=".json" onchange="importData(event)">
+    <div class="topbar-divider"></div>
     <button class="btn btn-ghost btn-sm" onclick="openCategoryModal()"><span>New category</span></button>
     <button class="btn btn-ghost btn-sm" onclick="openArticleModal()"><span>New article</span></button>
     <button class="btn btn-primary btn-sm" onclick="openArticleModal()"><span>New SOP</span></button>
@@ -481,7 +491,7 @@ const ACCESS_PASSWORD='Urban123';
 const AUTH_STORAGE_KEY='umt_kb_session_access_granted';
 
 function isUnlocked(){
-  return sessionStorage.getItem(AUTH_STORAGE_KEY)==='true';
+  return localStorage.getItem(AUTH_STORAGE_KEY)==='true';
 }
 
 function applyAuthState(){
@@ -500,14 +510,14 @@ function unlockSite(e){
   const input=document.getElementById('password-input');
   const error=document.getElementById('auth-error');
   if(input&&input.value===ACCESS_PASSWORD){
-    sessionStorage.setItem(AUTH_STORAGE_KEY,'true');
+    localStorage.setItem(AUTH_STORAGE_KEY,'true');
     if(error)error.textContent='';
     input.value='';
     applyAuthState();
     toast('Access granted');
     return;
   }
-  sessionStorage.removeItem(AUTH_STORAGE_KEY);
+  localStorage.removeItem(AUTH_STORAGE_KEY);
   if(error)error.textContent='Incorrect password';
   if(input){
     input.focus();
@@ -516,7 +526,7 @@ function unlockSite(e){
 }
 
 function lockSite(){
-  sessionStorage.removeItem(AUTH_STORAGE_KEY);
+  localStorage.removeItem(AUTH_STORAGE_KEY);
   closeArticleModal();
   closeCategoryModal();
   applyAuthState();
@@ -743,8 +753,15 @@ let editingId=null;
 let editingCategoryId=null;
 let currentArticleId=null;
 
-function saveArticles(){localStorage.setItem('umt_kb',JSON.stringify(articles));}
-function saveCategories(){localStorage.setItem('umt_kb_categories',JSON.stringify(categories));}
+function flashSaved(){
+  const el=document.getElementById('save-indicator');
+  if(!el)return;
+  el.textContent='Saving…';el.className='save-indicator saving';
+  clearTimeout(el._t);
+  el._t=setTimeout(()=>{el.textContent='✓ Saved — '+new Date().toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit'});el.className='save-indicator saved';},350);
+}
+function saveArticles(){localStorage.setItem('umt_kb',JSON.stringify(articles));flashSaved();}
+function saveCategories(){localStorage.setItem('umt_kb_categories',JSON.stringify(categories));flashSaved();}
 
 function normalizeIconId(icon){
   const raw=String(icon||'').trim();
@@ -1420,6 +1437,53 @@ document.addEventListener('keydown',e=>{
 document.addEventListener('click',e=>{
   if(!e.target.closest||!e.target.closest('#icon-picker'))closeIconPicker();
 });
+
+// ── Backup & Restore ──────────────────────────────────────────────────────────
+function exportData(){
+  const payload={
+    version:1,
+    exported:new Date().toISOString(),
+    articles:articles,
+    categories:categories
+  };
+  const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  const d=new Date();
+  const stamp=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  a.download='umt-knowledge-base-backup-'+stamp+'.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('Backup downloaded — save this file somewhere safe');
+}
+
+function importData(e){
+  const file=e.target.files&&e.target.files[0];
+  if(!file)return;
+  e.target.value='';
+  const reader=new FileReader();
+  reader.onload=function(ev){
+    try{
+      const data=JSON.parse(ev.target.result);
+      if(!data.articles||!data.categories||data.version!==1){
+        toast('Invalid backup file — please use a file exported from this Knowledge Base');
+        return;
+      }
+      if(!confirm('Restore from backup?\n\nThis will REPLACE all current articles and categories with the ones from the backup file.\n\nMake sure you have a backup of the current data first.')){return;}
+      articles=data.articles;
+      categories=data.categories;
+      saveArticles();
+      saveCategories();
+      refreshAll();
+      showHome();
+      toast('Restored from backup — '+articles.length+' articles, '+categories.length+' categories');
+    }catch(err){
+      toast('Could not read backup file — the file may be corrupted');
+    }
+  };
+  reader.readAsText(file);
+}
 
 init();
 applyAuthState();
