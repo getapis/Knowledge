@@ -345,6 +345,7 @@ button,input,select,textarea{font:inherit}
     <button class="btn btn-ghost btn-sm" onclick="openArticleModal()"><span>New article</span></button>
     <button class="btn btn-primary btn-sm" onclick="openArticleModal()"><span>New SOP</span></button>
     <button class="btn btn-ghost btn-sm" onclick="lockSite()"><span>Lock</span></button>
+    <button class="btn btn-ghost btn-sm" style="font-size:11px;opacity:.6" onclick="checkStorageHealth()" title="Check if your data is saved correctly">Status</button>
   </div>
 </header>
 
@@ -550,6 +551,26 @@ function lockSite(){
   closeCategoryModal();
   applyAuthState();
   toast('Locked');
+}
+
+function checkStorageHealth(){
+  const art=localStorage.getItem('umt_kb');
+  const cat=localStorage.getItem('umt_kb_categories');
+  const msgs=[];
+  if(art){
+    try{
+      const parsed=JSON.parse(art);
+      msgs.push('✓ '+parsed.length+' articles saved in storage');
+    }catch(e){msgs.push('✗ Article data is corrupt');}
+  }else{msgs.push('○ No articles saved yet');}
+  if(cat){
+    try{
+      const parsed=JSON.parse(cat);
+      msgs.push('✓ '+parsed.length+' categories saved in storage');
+    }catch(e){msgs.push('✗ Category data is corrupt');}
+  }else{msgs.push('○ No categories saved yet');}
+  msgs.push('Storage key: umt_kb_seeded='+localStorage.getItem('umt_kb_seeded'));
+  alert('Storage Status:\n\n'+msgs.join('\n'));
 }
 
 const ICON_OPTIONS=[
@@ -779,8 +800,24 @@ function flashSaved(){
   clearTimeout(el._t);
   el._t=setTimeout(()=>{el.textContent='✓ Saved — '+new Date().toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit'});el.className='save-indicator saved';},350);
 }
-function saveArticles(){localStorage.setItem('umt_kb',JSON.stringify(articles));flashSaved();}
-function saveCategories(){localStorage.setItem('umt_kb_categories',JSON.stringify(categories));flashSaved();}
+function saveArticles(){
+  try{
+    localStorage.setItem('umt_kb',JSON.stringify(articles));
+    flashSaved();
+  }catch(e){
+    console.error('Save failed:',e);
+    toast('⚠ Could not save — browser storage may be full');
+  }
+}
+function saveCategories(){
+  try{
+    localStorage.setItem('umt_kb_categories',JSON.stringify(categories));
+    flashSaved();
+  }catch(e){
+    console.error('Save failed:',e);
+    toast('⚠ Could not save — browser storage may be full');
+  }
+}
 
 function normalizeIconId(icon){
   const raw=String(icon||'').trim();
@@ -823,6 +860,8 @@ function normalizeCategoryIcons(){
 }
 
 function ensureSeededRetentionPlaybook(){
+  // Only seed once on first-ever visit — never overwrite user changes
+  if(localStorage.getItem('umt_kb_seeded')==='1')return;
   let changedCategories=false;
   let changedArticles=false;
 
@@ -843,6 +882,7 @@ function ensureSeededRetentionPlaybook(){
 
   if(changedCategories)saveCategories();
   if(changedArticles)saveArticles();
+  localStorage.setItem('umt_kb_seeded','1');
 }
 
 function init(){
@@ -854,6 +894,18 @@ function init(){
   buildRecentList();
   updateStats();
   populateCatSelect();
+  // Show storage status in indicator on load
+  const el=document.getElementById('save-indicator');
+  if(el){
+    const hasData=localStorage.getItem('umt_kb')!==null;
+    if(hasData){
+      el.textContent='✓ Data loaded from storage';
+      el.className='save-indicator saved';
+    }else{
+      el.textContent='○ Default data loaded';
+      el.className='save-indicator';
+    }
+  }
 }
 
 function updateStats(){
@@ -1463,7 +1515,8 @@ function exportData(){
     version:1,
     exported:new Date().toISOString(),
     articles:articles,
-    categories:categories
+    categories:categories,
+    seeded:localStorage.getItem('umt_kb_seeded')||'1'
   };
   const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
   const url=URL.createObjectURL(blob);
@@ -1494,6 +1547,7 @@ function importData(e){
       categories=data.categories;
       saveArticles();
       saveCategories();
+      if(data.seeded)localStorage.setItem('umt_kb_seeded',data.seeded);
       refreshAll();
       showHome();
       toast('Restored from backup — '+articles.length+' articles, '+categories.length+' categories');
